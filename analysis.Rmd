@@ -1,0 +1,155 @@
+---
+title: "KEGG Analysis Visualization"
+author: "Noah Siegel"
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(KEGGREST)
+})
+```
+
+# Introduction
+
+Try viewing the databases accessible through `KEGGREST`.
+```{r}
+listDatabases()
+```
+
+We can also view the supported organisms using the `keggList` function.
+```{r}
+org <- keggList("organism")
+head(org)
+```
+
+As you can see from the above command, many organisms are supported. However, for this example, we will be working with rhesus monkeys. The kegg abbriviation for rhedus macaques is `mcc`.
+```{r}
+rhesus <- keggList("mcc")
+head(rhesus)
+```
+
+I use the head function because the `rhesus` object contains all the database entries for rhesus monkeys. We are primarily interested in the pathways associated with the differentially expressed genes in our data. The code below will display a short subset of all the known pathways for rhesus monkeys.
+```{r}
+pathways.list <- keggList("pathway", "mcc")
+head(pathways.list)
+```
+
+To determine what pathways are present in our example data, we need to know what genes are in the KEGG pathways. To do this, we can extract the pathway codes from the list above and create a new object called `pathway.codes`.
+```{r}
+pathway.codes <- paste0("path:", names(pathways.list))
+head(pathway.codes)
+```
+
+We can next write a function called `genes.by.pathway` that we can use in conjunction with our example DEG list to determine which genes are present in our DEG list and what pathway(s) they are a part of.
+```{r}
+genes.by.pathway <- sapply(pathway.codes, function(pwid){
+  pw <- keggGet(pwid)
+  if (is.null(pw[[1]]$GENE)) return(NA)
+  pw2 <- pw[[1]]$GENE[c(T, F)]
+  pw2 <- unlist(lapply(strsplit(pw2, split = ";", fixed = T), function(x)x[1]))
+  return(pw2)
+})
+```
+
+Note that calling the function only does something when a data set is used as input.
+```{r}
+head(genes.by.pathway)
+```
+
+# Practicing with some test data
+For simplicity, let's read the practice data, which compares DEGs between an arbitrary treatment and control group.
+```{r}
+deg_file <- read.delim('data/treatement_v_control.txt', stringsAsFactors = FALSE)
+head(deg_file)
+```
+
+To match the genes in our practice data with those in the KEGG database, we first need to annotate our DEG list so that the genes between the database and the data frame have the same names. In this case, we will use the Entrezgene IDs. The script below will generate a mapping table using the base r package `left_join` to append to the DEG list above. This will allow comparisons between genes in our data and the KEGG database.
+```{r}
+# Load biomart packages
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(biomaRt)
+  library(BiocFileCache)
+})
+```
+
+```{r}
+# If you are interested, the below script is located in the scripts directory. If not, you can source this script from the Rmd you currently have open. Note that sourcing an external document is meant only to simplify this document.
+source('R/add_entrezgene_id.R')
+```
+
+```{r}
+# Add entrezgene ids
+load("/tmp/entrezgene.Rdata")
+anno <- entrezgene
+DE <- left_join(deg_file, anno, by = c("Gene.stable.ID" = "Gene_stable_ID"))
+```
+
+If you look at the last column of `DE` you can see we have a new column called `entrezgene_id`. This are IDs that the KEGG database is capable of relating to.
+```{r}
+head(DE)
+```
+Now we can make a numeric list of all DEGs (as Entrezgene IDs) with their corresponding p-values
+```{r}
+named.ranked.list <- DE$`P.Value`
+names(named.ranked.list) <- DE$entrezgene_id
+head(names(named.ranked.list) <- DE$entrezgene_id)
+```
+
+The below function determine which genes from the DEG table are part of what KEGG pathway.
+```{r}
+pVals.by.pathway <- sapply(names(genes.by.pathway),
+                           function(pathway) {
+                             pathway.genes <- genes.by.pathway[[pathway]]
+                             
+                             list.genes.in.pathway <- intersect(names(named.ranked.list), pathway.genes)
+                             
+                             list.genes.not.in.pathway <- setdiff(names(named.ranked.list), list.genes.in.pathway)
+                             
+                             ranks.in.pathway <- named.ranked.list[list.genes.in.pathway]
+                             
+                             ranks.not.in.pathway <- named.ranked.list[list.genes.not.in.pathway]
+                             
+                             if (!is.na(pathway.genes[1]) & length(list.genes.in.pathway) > 1){
+                               
+                               p.value <- wilcox.test(
+                                 ranks.in.pathway,
+                                 ranks.not.in.pathway,
+                                 alternative = "less")$p.value
+                               
+                             } else{
+                               
+                               p.value <- NA
+                               
+                             }
+                             
+                             return(list(list(raw.p.value = p.value, list.genes.in.pathway = list.genes.in.pathway,
+                                              Annotated = length(list.genes.in.pathway))))
+                           })
+```
+
+```{r}
+head(pVals.by.pathway)
+```
+Lastly, we can convert this result into a data frame and clean it up in such a way that we can gleam information about what pathways are present in our data.
+```{r}
+outdat <- data.frame(pathway.code = names(pVals.by.pathway))
+
+outdat$pathway.name <- pathways.list #[paste0("path:", outdat$pathway.code)]
+
+outdat$raw.p.value <- unlist(lapply(pVals.by.pathway, function(x)x$raw.p.value))
+
+outdat$Annotated <- unlist(lapply(pVals.by.pathway, function(x)x$Annotated))
+
+outdat$Genes.In.Pathway <- unlist(lapply(pVals.by.pathway, function(x)paste(x$list.genes.in.pathway, collapse = ",")))
+
+outdat <- outdat[order(outdat$raw.p.value),]
+```
+
+```{r}
+outdat
+```
+
+
+

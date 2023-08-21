@@ -1,0 +1,6 @@
+.jupyter-server-log.txt
+.local/
+.subversion/
+.jupyter/
+.config/
+.cache/

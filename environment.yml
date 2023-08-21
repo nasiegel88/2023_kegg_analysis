@@ -1,0 +1,11 @@
+name: kegg_analysis
+channels:
+ - conda-forge
+ - bioconda
+ - defaults
+dependencies:
+ - r-base
+ - r-dplyr
+ - bioconductor-keggrest
+ - bioconductor-biomart
+ - bioconductor-biocfilecache
