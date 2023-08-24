@@ -1,6 +1,9 @@
 # 2023_kegg_analysis
 
-## Setup
+## Run with Binder
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/nasiegel88/2023_kegg_analysis/HEAD)
+
+## Local Setup
 If you don't already have Git installed, you will be to do so. Follow the directions below to set up Git on your computer:
 
 ```bash
